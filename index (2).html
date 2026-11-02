@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<title>Study Duel</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f7a4d">
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--tx:#1d1d1b;--mu:#6b6b66;--ac:#1f7a4d;--bd:#e3e1da;--wa:#c2410c}
+@media (prefers-color-scheme:dark){:root{--bg:#151514;--card:#201f1e;--tx:#efeee9;--mu:#9a9992;--ac:#4ade80;--bd:#34332f;--wa:#fb923c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.45;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+.w{max-width:640px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:4px 0 2px}h2{font-size:15px;margin:0 0 10px;color:var(--mu);font-weight:600}
+.sub{color:var(--mu);font-size:14px;margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:14px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+input{font:inherit;padding:10px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx);min-width:0}
+#topic{flex:1 1 180px}#mins{width:90px}
+button{font:inherit;padding:10px 16px;border:0;border-radius:10px;background:var(--ac);color:#fff;font-weight:600;cursor:pointer}
+@media (prefers-color-scheme:dark){button{color:#06210f}}
+button.g{background:transparent;color:var(--mu);border:1px solid var(--bd);padding:4px 10px;font-weight:400;font-size:12px}
+.pl{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.p{border:1px solid var(--bd);border-radius:12px;padding:12px}
+.p.me{border-color:var(--ac)}
+.n{font-weight:700;font-size:16px}.big{font-size:26px;font-weight:700}.s{color:var(--mu);font-size:12px}
+.lead{display:inline-block;background:var(--ac);color:#fff;border-radius:99px;padding:1px 8px;font-size:11px;margin-left:6px}
+@media (prefers-color-scheme:dark){.lead{color:#06210f}}
+.warn{color:var(--wa);font-size:13px}
+ul{list-style:none;margin:0;padding:0}
+li{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--bd);font-size:14px}
+li:first-child{border-top:0}
+.bar{height:8px;background:var(--bd);border-radius:9px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--ac)}
+.hide{display:none}
+</style>
+</head>
+<body>
+<div class="w">
+<div class="row" style="justify-content:space-between;align-items:center">
+<h1>Study Duel</h1><button id="out" class="g hide">Sign out</button>
+</div>
+<p class="sub">Roz padho, roz log karo. Streak mat todna.</p>
+<div id="msg" class="card hide"></div>
+
+<div id="login" class="card hide">
+<h2>Shuru karne ke liye login karo</h2>
+<button id="gl">Google se login</button>
+</div>
+
+<div id="setup" class="card hide">
+<h2>Apna naam likho</h2>
+<div class="row"><input id="nm" placeholder="Naam (e.g. Priyanshu)" maxlength="20"><button id="svn">Save</button></div>
+</div>
+
+<div id="app" class="hide">
+<div class="card">
+<h2>Aaj kya padha?</h2>
+<div class="row">
+<input id="topic" placeholder="Topic (e.g. OS Unit 2)" maxlength="80">
+<input id="mins" type="number" min="1" max="1440" placeholder="Min">
+<button id="add">Add</button>
+</div>
+<p class="s" style="margin:8px 0 0">Streak ke liye din me kam se kam <b>30</b> min padhna hai.</p>
+</div>
+<div class="card"><h2>Scoreboard</h2><div class="pl" id="board"></div></div>
+<div class="card"><h2>Is hafte ke minutes</h2><div id="week"></div></div>
+<div class="card"><h2>Recent log</h2><ul id="feed"></ul></div>
+</div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBfFnoyoiN85XmlN6PFs1F1vvFnX6bvBsA",
+  authDomain: "study-duel-b567b.firebaseapp.com",
+  projectId: "study-duel-b567b",
+  storageBucket: "study-duel-b567b.firebasestorage.app",
+  messagingSenderId: "347303530679",
+  appId: "1:347303530679:web:e304b0b2d24e2495f43d32"
+};
+const fapp = initializeApp(firebaseConfig);
+const auth = getAuth(fapp);
+const db = getFirestore(fapp);
+
+const GOAL = 30;
+let uid = null, docs = {}, unsub = null;
+const $ = i => document.getElementById(i);
+const pad = n => (n < 10 ? "0" : "") + n;
+const day = d => { d = d || new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
+const shift = (s, n) => { const p = s.split("-"); return day(new Date(+p[0], +p[1] - 1, +p[2] + n)); };
+const esc = t => { const e = document.createElement("div"); e.textContent = t; return e.innerHTML; };
+const fmt = m => { const h = Math.floor(m / 60); return h ? h + "h " + (m % 60) + "m" : m + "m"; };
+const say = t => { $("msg").textContent = t; $("msg").classList.remove("hide"); };
+const perDay = en => { const o = {}; (en || []).forEach(e => { o[e.d] = (o[e.d] || 0) + e.m; }); return o; };
+function streak(en) {
+  const o = perDay(en), t = day(); let c = 0, s = o[t] >= GOAL ? t : shift(t, -1);
+  while (o[s] >= GOAL) { c++; s = shift(s, -1); }
+  return c;
+}
+function weekMins(en) { const o = perDay(en), t = day(); let s = 0; for (let i = 0; i < 7; i++) s += o[shift(t, -i)] || 0; return s; }
+
+function render() {
+  const ppl = Object.keys(docs).map(id => {
+    const d = docs[id], en = d.entries || [], o = perDay(en);
+    return { id, name: d.name || "?", en, st: streak(en), today: o[day()] || 0, wk: weekMins(en), tot: en.reduce((a, e) => a + e.m, 0) };
+  }).sort((a, b) => b.wk - a.wk);
+  const maxWk = Math.max(1, ...ppl.map(p => p.wk));
+  let h = "";
+  ppl.forEach((p, i) => {
+    const lead = (i === 0 && p.wk > 0 && (ppl.length < 2 || p.wk > ppl[1].wk)) ? '<span class="lead">aage</span>' : "";
+    h += '<div class="p' + (p.id === uid ? " me" : "") + '"><div class="n">' + esc(p.name) + (p.id === uid ? " (tum)" : "") + lead + '</div>' +
+      '<div class="big">' + p.st + ' 🔥</div><div class="s">din ki streak</div>' +
+      '<div style="margin-top:8px" class="s">Aaj: <b>' + fmt(p.today) + '</b>' + (p.today < GOAL ? ' <span class="warn">(streak ke liye ' + (GOAL - p.today) + 'm baaki)</span>' : "") + '</div>' +
+      '<div class="s">Total: ' + fmt(p.tot) + '</div></div>';
+  });
+  if (ppl.length < 2) h += '<div class="p"><div class="n">Dost ka wait...</div><div class="s">Dost ko link bhejo, woh Google se login karke naam daal dega.</div></div>';
+  $("board").innerHTML = h;
+  $("week").innerHTML = ppl.map(p => '<div style="margin-bottom:10px"><div class="row" style="justify-content:space-between"><span>' + esc(p.name) + '</span><b>' + fmt(p.wk) + '</b></div><div class="bar"><i style="width:' + Math.round(p.wk / maxWk * 100) + '%"></i></div></div>').join("");
+  const all = [];
+  ppl.forEach(p => p.en.forEach(e => all.push({ n: p.name, id: p.id, e })));
+  all.sort((a, b) => b.e.t - a.e.t);
+  $("feed").innerHTML = all.slice(0, 20).map(x =>
+    '<li><span><b>' + esc(x.n) + '</b>: ' + esc(x.e.p) + '<br><span class="s">' + x.e.d + '</span></span><span>' + fmt(x.e.m) + (x.id === uid ? ' <button class="g" data-t="' + x.e.t + '">x</button>' : "") + '</span></li>'
+  ).join("") || '<li class="s">Abhi kuch log nahi hua.</li>';
+  const me = docs[uid];
+  $("setup").classList.toggle("hide", !!(me && me.name));
+  $("app").classList.toggle("hide", !(me && me.name));
+}
+
+async function save(patch) {
+  const cur = docs[uid] || { name: "", entries: [] };
+  const nx = { name: patch.name !== undefined ? patch.name : cur.name, entries: patch.entries || cur.entries || [] };
+  docs[uid] = nx; render();
+  try { await setDoc(doc(db, "logs", uid), nx); } catch (e) { say("Save nahi hua. Internet ya Firestore rules check karo."); }
+}
+
+$("gl").onclick = async () => { try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch (e) { say("Login nahi hua: " + (e.code || "error")); } };
+$("out").onclick = () => signOut(auth);
+$("svn").onclick = () => { const v = $("nm").value.trim(); if (v) save({ name: v }); };
+$("add").onclick = () => {
+  const p = $("topic").value.trim(), m = parseInt($("mins").value, 10);
+  if (!p || !(m > 0)) return;
+  const en = ((docs[uid] || {}).entries || []).concat([{ p, m: Math.min(m, 1440), d: day(), t: Date.now() }]);
+  $("topic").value = ""; $("mins").value = "";
+  save({ entries: en });
+};
+$("feed").onclick = ev => {
+  const t = ev.target.getAttribute && ev.target.getAttribute("data-t");
+  if (!t) return;
+  save({ entries: ((docs[uid] || {}).entries || []).filter(e => String(e.t) !== t) });
+};
+
+onAuthStateChanged(auth, user => {
+  if (unsub) { unsub(); unsub = null; }
+  docs = {};
+  if (!user) {
+    uid = null;
+    $("login").classList.remove("hide"); $("out").classList.add("hide");
+    $("app").classList.add("hide"); $("setup").classList.add("hide");
+    return;
+  }
+  uid = user.uid;
+  $("login").classList.add("hide"); $("out").classList.remove("hide");
+  unsub = onSnapshot(collection(db, "logs"), snap => {
+    const o = {}; snap.forEach(d => { o[d.id] = d.data(); });
+    docs = o; render();
+  }, () => say("Data read nahi ho paya. Firestore rules check karo."));
+  render();
+});
+</script>
+</body>
+</html>
